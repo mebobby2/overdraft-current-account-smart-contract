@@ -15,3 +15,5 @@ For ThoughtMachines Vault
 * Activate Pipenvshell
   * pipenv shell
   * This will spawn a new shell subprocess, which can be deactivated by using exit
+* Testing
+  * python3 -m unittest simple_tutorial_tests.TutorialTest.test_unchallenged_deposit
