@@ -46,10 +46,14 @@ parameters = [
     ),
     Parameter(
         name='interest_payment_day',
-        level=,
+        level=Level.INSTANCE,
         description="Which day of the month would you like to receive interest?",
         display_name='Elected day of month to apply interest',
-        shape=,
+        shape=OptionalShape(NumberShape(
+            min_value=1,
+            max_value=28,
+            step=1
+        )),
         update_permission=UpdatePermission.USER_EDITABLE,
     )
 ]
@@ -86,16 +90,115 @@ def post_posting_code(postings, effective_date):
 def execution_schedules():
     selected_day = vault.get_parameter_timeseries(
         name='interest_payment_day').latest()
+    interest_payday = selected_day.value if selected_day.is_set() else min(
+        vault.get_account_creation_date().day, 28
+    )
 
-    return [('ACCRUE_INTEREST', {'hour': '00', 'minute': '00', 'second': '00'})]
+    return [
+        (
+            'APPLY_ACCRUED_INTEREST', {
+                'day': str(interest_payday),
+                'hour': '0',
+                'minute': '1'
+            }
+        ),
+        (
+            'ACCRUE_INTEREST', {
+                'hour': '00',
+                'minute': '00',
+                'second': '00'
+            }
+        ),
+    ]
 
 # https://docs.thoughtmachine.net/vault-core/4-5/EN/reference/balances/overview/#accounting_model
 
 
 @requires(event_type='ACCRUE_INTEREST', parameters=True, balances='1 day')
+@requires(event_type='APPLY_ACCRUED_INTEREST', parameters=True, balances='1 day')
 def scheduled_code(event_type, effective_date):
     if event_type == 'ACCRUE_INTEREST':
         _accrue_interest(vault, effective_date)
+    elif event_type == 'APPLY_ACCRUED_INTEREST':
+        _apply_accrued_interest(vault, effective_date)
+
+
+def _apply_accrued_interest(vault, end_of_day_datetime):
+    denomination = vault.get_parameter_timeseries(name='denomination').latest()
+    latest_bal_by_addr = vault.get_balance_timeseries().at(
+        timestamp=end_of_day_datetime)
+
+    incoming_accrued = latest_bal_by_addr[
+        ('ACCRUED_INCOMING', DEFAULT_ASSET, denomination, Phase.COMMITTED)
+    ].net
+
+    amount_to_be_paid = _precision_fulfillment(incoming_accrued)
+
+    # Fulfil any incoming interest into the account
+    if amount_to_be_paid > 0:
+        posting_ins = vault.make_internal_transfer_instructions(
+            amount=amount_to_be_paid,
+            denomination=denomination,
+            from_account_id=vault.account_id,
+            from_account_address='ACCRUED_INCOMING',
+            to_account_id=vault.account_id,
+            to_account_address=DEFAULT_ADDRESS,
+            asset=DEFAULT_ASSET,
+            client_transaction_id='APPLY_ACCRUED_INTEREST_{}_{}_CUSTOMER'.format(
+                vault.get_hook_execution_id(), denomination
+            ),
+            instruction_details={
+                'description': 'Interest Applied',
+                'event': 'APPLY_ACCRUED_INTEREST'
+            }
+        )
+        posting_ins.extend(
+            vault.make_internal_transfer_instructions(
+                amount=amount_to_be_paid,
+                denomination=denomination,
+                from_account_id=internal_account,
+                from_account_address=DEFAULT_ADDRESS,
+                to_account_id=internal_account,
+                to_account_address='ACCRUED_OUTGOING',
+                asset=DEFAULT_ASSET,
+                client_transaction_id='APPLY_ACCRUED_INTEREST_{}_{}_INTERNAL'.format(
+                    vault.get_hook_execution_id(), denomination
+                ),
+                instruction_details={
+                    'description': 'Interest Applied',
+                    'event': 'APPLY_ACCRUED_INTEREST'
+                }
+            )
+        )
+
+        # only zero out accrued interest if the remainder is positive (i.e. we rounded interest down)
+        remainder = incoming_accrued - amount_to_be_paid
+        if remainder > 0:
+            posting_ins.extend(
+                vault.make_internal_transfer_instructions(
+                    amount=abs(remainder), denomination=denomination,
+                    from_account_id=vault.account_id, from_account_address='ACCRUED_INCOMING',
+                    to_account_id=internal_account, to_account_address='ACCRUED_OUTGOING',
+                    asset=DEFAULT_ASSET,
+                    client_transaction_id='REVERSE_ACCRUE_INTEREST_{}_{}'.format(
+                        vault.get_hook_execution_id(), denomination
+                    ),
+                    instruction_details={
+                        'description': 'Reversing negative accrued interest after payment.',
+                        'event': 'APPLY_ACCRUED_INTEREST'
+                    }
+                )
+            )
+
+        # instructions to apply interest and optional reversal of remainder must be executed
+        # in a batch to ensure the overall transaction is atomic
+        vault.instruct_posting_batch(
+            posting_instructions=posting_ins,
+            effective_date=end_of_day_datetime,
+            client_batch_id='APPLY_ACCRUED_INTEREST_{}_{}'.format(
+                vault.get_hook_execution_id(), denomination
+            )
+        )
 
 
 def _accrue_interest(vault, end_of_day_datetime):
