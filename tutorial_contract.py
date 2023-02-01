@@ -44,6 +44,14 @@ parameters = [
         description='Gross Interest Rate',
         display_name='Rate paid on positive balances',
     ),
+    Parameter(
+        name='interest_payment_day',
+        level=,
+        description="Which day of the month would you like to receive interest?",
+        display_name='Elected day of month to apply interest',
+        shape=,
+        update_permission=UpdatePermission.USER_EDITABLE,
+    )
 ]
 internal_account = '1'
 
@@ -74,7 +82,11 @@ def post_posting_code(postings, effective_date):
         _charge_overdraft_fee(vault, effective_date + timedelta(minutes=1))
 
 
+@requires(parameters=True)
 def execution_schedules():
+    selected_day = vault.get_parameter_timeseries(
+        name='interest_payment_day').latest()
+
     return [('ACCRUE_INTEREST', {'hour': '00', 'minute': '00', 'second': '00'})]
 
 # https://docs.thoughtmachine.net/vault-core/4-5/EN/reference/balances/overview/#accounting_model
@@ -120,32 +132,39 @@ def _accrue_interest(vault, end_of_day_datetime):
             effective_date=end_of_day_datetime
         )
 
+
 def _precision_accural(amount):
     return amount.copy_abs().quantize(Decimal('.00001'), rounding=ROUND_HALF_UP)
 
+
+def _precision_fulfillment(amount):
+    return amount.copy_abs().quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+
+
 def _charge_overdraft_fee(vault, effective_date):
     denomination = vault.get_parameter_timeseries(name='denomination').latest()
-    overdraft_fee = vault.get_parameter_timeseries(name='overdraft_fee').latest()
+    overdraft_fee = vault.get_parameter_timeseries(
+        name='overdraft_fee').latest()
     instructions = vault.make_internal_transfer_instructions(
-      amount=overdraft_fee,
-      denomination=denomination,
-      from_account_id=vault.account_id,
-      from_account_address=DEFAULT_ADDRESS,
-      to_account_id=internal_account,
-      to_account_address=DEFAULT_ADDRESS,
-      asset=DEFAULT_ASSET,
-      client_transaction_id='{}_OVERDRAFT_FEE'.format(
-        vault.get_hook_execution_id()
-      ),
-      instruction_details={
-        'description': 'Overdraft fee charged'
-      },
-      pics=[]
+        amount=overdraft_fee,
+        denomination=denomination,
+        from_account_id=vault.account_id,
+        from_account_address=DEFAULT_ADDRESS,
+        to_account_id=internal_account,
+        to_account_address=DEFAULT_ADDRESS,
+        asset=DEFAULT_ASSET,
+        client_transaction_id='{}_OVERDRAFT_FEE'.format(
+            vault.get_hook_execution_id()
+        ),
+        instruction_details={
+            'description': 'Overdraft fee charged'
+        },
+        pics=[]
     )
     vault.instruct_posting_batch(
-      posting_instructions=instructions,
-      effective_date=effective_date,
-      client_batch_id='BATCH_{}_OVERDRAFT_FEE'.format(
-        vault.get_hook_execution_id()
-      )
+        posting_instructions=instructions,
+        effective_date=effective_date,
+        client_batch_id='BATCH_{}_OVERDRAFT_FEE'.format(
+            vault.get_hook_execution_id()
+        )
     )

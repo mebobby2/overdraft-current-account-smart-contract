@@ -19,4 +19,6 @@ For ThoughtMachines Vault tutorial: https://docs.thoughtmachine.net/vault-core/4
   * python3 -m unittest simple_tutorial_tests.TutorialTest.test_unchallenged_deposit
 
 ## Upto
-https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#basic-contract-exercise_five__defining_execution_schedules
+https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#basic-contract-exercise_seven__interest_application
+
+We wrap NumberShape in an OptionalShape to show that the end user does not
