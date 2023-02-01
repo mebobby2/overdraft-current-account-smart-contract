@@ -36,6 +36,14 @@ parameters = [
         description='Overdraft fee',
         display_name='Fee charged on balances over overdraft limit',
     ),
+    Parameter(
+        name='gross_interest_rate',
+        shape=NumberShape(
+            kind=NumberKind.PERCENTAGE, min_value=0, max_value=1, step=0.01),
+        level=Level.TEMPLATE,
+        description='Gross Interest Rate',
+        display_name='Rate paid on positive balances',
+    ),
 ]
 internal_account = '1'
 
@@ -65,6 +73,55 @@ def post_posting_code(postings, effective_date):
         # Charge the fee
         _charge_overdraft_fee(vault, effective_date + timedelta(minutes=1))
 
+
+def execution_schedules():
+    return [('ACCRUE_INTEREST', {'hour': '00', 'minute': '00', 'second': '00'})]
+
+# https://docs.thoughtmachine.net/vault-core/4-5/EN/reference/balances/overview/#accounting_model
+
+
+@requires(event_type='ACCRUE_INTEREST', parameters=True, balances='1 day')
+def scheduled_code(event_type, effective_date):
+    if event_type == 'ACCRUE_INTEREST':
+        _accrue_interest(vault, effective_date)
+
+
+def _accrue_interest(vault, end_of_day_datetime):
+    denomination = vault.get_parameter_timeseries(name='denomination').latest()
+    balances = vault.get_balance_timeseries().at(timestamp=end_of_day_datetime)
+    effective_balance = balances[(
+        DEFAULT_ADDRESS, DEFAULT_ASSET, denomination, Phase.COMMITTED)].net
+
+    gross_interest_rate = vault.get_parameter_timeseries(
+        name='gross_interest_rate'
+    ).before(timestamp=end_of_day_datetime)
+
+    daily_rate = gross_interest_rate / 365
+    daily_rate_percent = daily_rate * 100
+    amount_to_accrue = _precision_accural(effective_balance * daily_rate)
+
+    if amount_to_accrue > 0:
+        posting_ins = vault.make_internal_transfer_instructions(
+            amount=amount_to_accrue,
+            denomination=denomination,
+            client_transaction_id=vault.get_hook_execution_id(),
+            from_account_id=internal_account,
+            from_account_address='ACCRUED_OUTGOING',
+            to_account_id=vault.account_id,
+            to_account_address='ACCRUED_INCOMING',
+            instruction_details={
+                'description': 'Daily interest accrued at %0.5f%% on balance of %0.2f' %
+                               (daily_rate_percent, effective_balance)
+            },
+            asset=DEFAULT_ASSET
+        )
+        vault.instruct_posting_batch(
+            posting_instructions=posting_ins,
+            effective_date=end_of_day_datetime
+        )
+
+def _precision_accural(amount):
+    return amount.copy_abs().quantize(Decimal('.00001'), rounding=ROUND_HALF_UP)
 
 def _charge_overdraft_fee(vault, effective_date):
     denomination = vault.get_parameter_timeseries(name='denomination').latest()
