@@ -38,8 +38,9 @@ For ThoughtMachines Vault tutorial: https://docs.thoughtmachine.net/vault-core/4
   * This will spawn a new shell subprocess, which can be deactivated by using exit
 * Testing
   * python3 -m unittest simple_tutorial_tests.TutorialTest.test_unchallenged_deposit
+  * run all tests: python3 -m unittest tests.py
 
 ## Upto
-https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#basic-contract-exercise_seven__interest_application
+https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#advanced-contract-principal_payment
 
-Advanced Tutorial (Loan Contract)
+We are going to work on implementing daily interest accruals.
