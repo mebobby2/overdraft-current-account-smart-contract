@@ -43,4 +43,5 @@ For ThoughtMachines Vault tutorial: https://docs.thoughtmachine.net/vault-core/4
 ## Upto
 https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#advanced-contract-principal_payment
 
-We are going to work on implementing daily interest accruals.
+
+This tutorial shows the implementation of charging an account
