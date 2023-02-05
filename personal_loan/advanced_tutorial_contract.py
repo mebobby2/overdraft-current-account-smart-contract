@@ -1,4 +1,10 @@
 api = '3.0.0'
+
+# https://docs.thoughtmachine.net/vault-core/4-5/EN/reference/balances/overview/#accounting_model-debits_credits_and_tside
+# A contract template may optionally specify a variable named tside. This becomes a product level attribute with one of the values "ASSET"
+# or "LIABILITY". Default value is "LIABILITY". The effect of this field is simply the sign of every balance. Every posting is either counted
+# as a credit or a debit. If tside of a product is "LIABILITY", every account instance will calculate net balance as net = total credit - total debit.
+# For an "ASSET" type account, net balances are defined as net = total debit - total credit.
 tside = Tside.ASSET
 
 # specifying custom balance address for accruals
@@ -113,9 +119,6 @@ def execution_schedules():
         payment_day, roll_over_to_next_month, creation_date
     )
 
-    print('===============')
-    print(first_payment_date)
-
     # All scheduled events are defined in UTC timezone
     return [
         (
@@ -162,6 +165,7 @@ def _calculate_first_payment_day(payment_day, roll_over_to_next_month, creation_
     if date_delta.days < 28:
         first_payment_date += timedelta(months=1)
     return first_payment_date
+
 
 @requires(event_type='ACCRUED_INTEREST', parameters=True, balances='1 day')
 @requires(event_type='APPLY_INTEREST', parameters=True, balances='1 day', last_execution_time=['APPLY_INTEREST'])
