@@ -15,6 +15,29 @@ auth_token = "A0003256414797670411991!FZ/D4LwwwqJMTyKW644WAqJkf/uXg7sC7LhWNtl7kL
 
 CONTRACT_FILE = './advanced_tutorial_contract.py'
 
+default_template_params = {
+    'denomination': 'GBP',
+    'gross_interest_rate_tiers' : json.dumps(
+            {
+                'tier1': '0.135',
+                'tier2': '0.098',
+                'tier3': '0.045',
+                'tier4': '0.03',
+                'tier5': '0.035'
+            }
+        ),
+    'tier_ranges': json.dumps(
+            {
+                "tier1": {"min": 1000, "max": 2999},
+                "tier2": {"min": 3000, "max": 4999},
+                "tier3": {"min": 5000, "max": 7499},
+                "tier4": {"min": 7500, "max": 14999},
+                "tier5": {"min": 15000, "max": 20000}
+            }
+        ),
+    'internal_account': '1',
+}
+
 
 class TutorialTest(unittest.TestCase):
     @classmethod
@@ -33,31 +56,10 @@ class TutorialTest(unittest.TestCase):
     def test_initial_fund_movement(self):
         start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
         end = datetime(year=2019, month=1, day=2, tzinfo=timezone.utc)
-        template_params = {
-            'denomination': 'GBP',
-            'gross_interest_rate_tiers': json.dumps(
-                {
-                    'tier1': '0.135',
-                    'tier2': '0.098',
-                    'tier3': '0.045',
-                    'tier4': '0.03',
-                    'tier5': '0.035'
-                }
-            ),
-            'tier_ranges': json.dumps(
-                {
-                    "tier1": {"min": 1000, "max": 2999},
-                    "tier2": {"min": 3000, "max": 4999},
-                    "tier3": {"min": 5000, "max": 7499},
-                    "tier4": {"min": 7500, "max": 14999},
-                    "tier5": {"min": 15000, "max": 20000}
-                }
-            ),
-            'internal_account': '1',
-        }
         instance_params = {
             'loan_amount': '10000',
-            'deposit_account': '12345'
+            'deposit_account': '12345',
+            'payment_day': '1',
         }
         res = self.client.simulate_contracts(
             start_timestamp=start,
@@ -66,7 +68,7 @@ class TutorialTest(unittest.TestCase):
                 {
                     "smart_contract_version_id": "1",
                     "code": self.smart_contract_contents,
-                    "smart_contract_param_vals": template_params,
+                    "smart_contract_param_vals": default_template_params,
                 },
                 {
                     "smart_contract_version_id": "2",
@@ -107,31 +109,10 @@ class TutorialTest(unittest.TestCase):
         start = datetime(year=2019, month=1, day=1,
                          hour=9, tzinfo=timezone.utc)
         end = datetime(year=2019, month=1, day=2, hour=9, tzinfo=timezone.utc)
-        template_params = {
-            'denomination': 'GBP',
-            'gross_interest_rate_tiers': json.dumps(
-                {
-                    'tier1': '0.135',
-                    'tier2': '0.098',
-                    'tier3': '0.045',
-                    'tier4': '0.03',
-                    'tier5': '0.035'
-                }
-            ),
-            'tier_ranges': json.dumps(
-                {
-                    "tier1": {"min": 1000, "max": 2999},
-                    "tier2": {"min": 3000, "max": 4999},
-                    "tier3": {"min": 5000, "max": 7499},
-                    "tier4": {"min": 7500, "max": 14999},
-                    "tier5": {"min": 15000, "max": 20000}
-                }
-            ),
-            'internal_account': '1',
-        }
         instance_params = {
             'loan_amount': '10000',
-            'deposit_account': '12345'
+            'deposit_account': '12345',
+            'payment_day': '1',
         }
         res = self.client.simulate_contracts(
             start_timestamp=start,
@@ -140,7 +121,7 @@ class TutorialTest(unittest.TestCase):
                 {
                     "smart_contract_version_id": "1",
                     "code": self.smart_contract_contents,
-                    "smart_contract_param_vals": template_params,
+                    "smart_contract_param_vals": default_template_params,
                 },
                 {
                     "smart_contract_version_id": "2",
@@ -182,3 +163,65 @@ class TutorialTest(unittest.TestCase):
             if "ACCRUED_INTEREST" in balance["account_address"]
         )
         self.assertEqual(float(interest_balance["amount"]), 0.8219)
+
+    def test_interest_charges(self):
+        # We want to test that at 12:00:01 AM interest is charged
+        start = datetime(year=2019, month=1, day=1,
+                         hour=9, tzinfo=timezone.utc)
+        end = datetime(year=2019, month=2, day=1, hour=9, tzinfo=timezone.utc)
+        instance_params = {
+            'loan_amount': '10000',
+            'deposit_account': '12345',
+            'payment_day': '1',
+        }
+        res = self.client.simulate_contracts(
+            start_timestamp=start,
+            end_timestamp=end,
+            smart_contracts=[
+                {
+                    "smart_contract_version_id": "1",
+                    "code": self.smart_contract_contents,
+                    "smart_contract_param_vals": default_template_params,
+                },
+                {
+                    "smart_contract_version_id": "2",
+                    "code": "api = '3.6.0'",
+                },
+                {
+                    "smart_contract_version_id": "3",
+                    "code": "api = '3.6.0'",
+                },
+            ],
+            instructions=[
+                vault_caller.SimulationInstruction(start, {
+                    "create_account": {
+                        "id": "main_account",
+                        "product_version_id": "1",
+                        "instance_param_vals": instance_params,
+                    }
+                }),
+                # Our deposit account.
+                vault_caller.SimulationInstruction(start, {
+                    "create_account": {
+                        "id": "1",
+                        "product_version_id": "2",
+                    }
+                }),
+                # Our internal account.
+                vault_caller.SimulationInstruction(start, {
+                    "create_account": {
+                        "id": "12345",
+                        "product_version_id": "3",
+                    }
+                })
+            ],
+        )
+        final_account_balances = res[-1]["result"]["balances"]["main_account"]["balances"]
+        accrual_balances = next(
+            balance
+            for balance in final_account_balances
+            if "DEFAULT" in balance["account_address"]
+        )
+        self.assertEqual(float(accrual_balances.get('amount')), 10025.48)
+        self.assertEqual(accrual_balances.get(
+            'value_time'), '2019-02-01T00:00:01Z')

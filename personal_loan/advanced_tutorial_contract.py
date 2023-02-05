@@ -40,7 +40,7 @@ parameters = [
         name='internal_account',
         shape=AccountIdShape,
         level=Level.TEMPLATE,
-        description='Internal account ID.',
+        description='The internal account that collects charged interest.',
         display_name='Internal account ID',
     ),
     Parameter(
@@ -56,6 +56,20 @@ parameters = [
         level=Level.TEMPLATE,
         description='The available loan tiers',
         display_name='The available loan tiers',
+    ),
+    Parameter(
+        name='payment_day',
+        level=Level.INSTANCE,
+        description="On which day of the month would you like to pay?",
+        display_name="The day of the month that you would like to pay. "
+                     "This day must be between the 1st and 28th day of the month",
+        shape=OptionalShape(NumberShape(
+            kind=NumberKind.PLAIN,
+            min_value=1,
+            max_value=28,
+            step=1,
+        )),
+        update_permission=UpdatePermission.USER_EDITABLE,
     ),
 ]
 
@@ -85,7 +99,23 @@ def post_activate_code():
         posting_instructions=posting_ins, effective_date=start_date)
 
 
+@requires(parameters=True)
 def execution_schedules():
+    payment_day_param = vault.get_parameter_timeseries(
+        name='payment_day').latest()
+    creation_date = vault.get_account_creation_date()
+    payment_day, roll_over_to_next_month = _get_payment_day(
+        vault,
+        payment_day_param,
+        creation_date
+    )
+    first_payment_date = _calculate_first_payment_day(
+        payment_day, roll_over_to_next_month, creation_date
+    )
+
+    print('===============')
+    print(first_payment_date)
+
     # All scheduled events are defined in UTC timezone
     return [
         (
@@ -95,11 +125,46 @@ def execution_schedules():
                 'minute': '0',
                 'second': '0'
             }
-        )
+        ),
+        (
+            'APPLY_INTEREST',
+            {
+                'day': str(payment_day),
+                'hour': '0',
+                'minute': '0',
+                'second': '1',
+                'start_date': str(first_payment_date.date())
+            }
+        ),
     ]
 
 
+def _get_payment_day(vault, payment_day_param, effective_date):
+    roll_over_to_next_month = False
+    if payment_day_param.is_set():
+        payment_day = payment_day_param.value
+    else:
+        payment_day = 28
+    if payment_day > 28:
+        payment_day = 1
+    if payment_day < effective_date.day:
+        roll_over_to_next_month = True
+    return payment_day, roll_over_to_next_month
+
+
+def _calculate_first_payment_day(payment_day, roll_over_to_next_month, creation_date):
+    first_payment_date = creation_date.replace(day=payment_day)
+    if roll_over_to_next_month:
+        first_payment_date += timedelta(months=1)
+    date_delta = first_payment_date - creation_date
+    # We wish to add a month to the first payment date
+    # So that the customer doesnt pay in their first month
+    if date_delta.days < 28:
+        first_payment_date += timedelta(months=1)
+    return first_payment_date
+
 @requires(event_type='ACCRUED_INTEREST', parameters=True, balances='1 day')
+@requires(event_type='APPLY_INTEREST', parameters=True, balances='1 day', last_execution_time=['APPLY_INTEREST'])
 def scheduled_code(event_type, effective_date):
     internal_account = vault.get_parameter_timeseries(
         name='internal_account').latest()
@@ -118,6 +183,57 @@ def scheduled_code(event_type, effective_date):
         _accure_interest(
             vault, denomination, internal_account, effective_date, loan_amount,
             interest_rate_tiers, tier_ranges, balances
+        )
+    elif event_type == 'APPLY_INTEREST':
+        balances = vault.get_balance_timeseries().latest()
+        _apply_accrued_interest(
+            vault, effective_date, internal_account, denomination, balances)
+
+
+def _apply_accrued_interest(vault, end_of_day_datetime, internal_account, denomination, balances):
+    outgoing_accrued = balances[
+        (ACCRUED_INTEREST, DEFAULT_ASSET, denomination, Phase.COMMITTED)
+    ].net
+    amount_to_be_paid = _precision_fulfillment(outgoing_accrued)
+    hook_execution_id = vault.get_hook_execution_id()
+
+    if amount_to_be_paid > 0:
+        posting_ins = vault.make_internal_transfer_instructions(
+            amount=amount_to_be_paid,
+            denomination=denomination,
+            from_account_id=vault.account_id,
+            from_account_address=DEFAULT_ADDRESS,
+            to_account_id=vault.account_id,
+            to_account_address=ACCRUED_INTEREST,
+            asset=DEFAULT_ASSET,
+            client_transaction_id=f'APPLY_ACCRUED_INTEREST_{hook_execution_id}_{denomination}'
+            '_CUSTOMER',
+            instruction_details={
+                'description': 'Interest Applied',
+                'event': 'APPLY_ACCRUED_INTEREST'
+            }
+        )
+        posting_ins.extend(
+            vault.make_internal_transfer_instructions(
+                amount=amount_to_be_paid,
+                denomination=denomination,
+                from_account_id=internal_account,
+                from_account_address='ACCRUED_INCOMING',
+                to_account_id=internal_account,
+                to_account_address=DEFAULT_ADDRESS,
+                asset=DEFAULT_ASSET,
+                client_transaction_id='APPLY_ACCRUED_INTEREST_{hook_execution_id}_{denomination}'
+                '_INTERNAL',
+                instruction_details={
+                    'description': 'Interest Applied',
+                    'event': 'APPLY_ACCRUED_INTEREST'
+                }
+            )
+        )
+        vault.instruct_posting_batch(
+            posting_instructions=posting_ins,
+            effective_date=end_of_day_datetime,
+            client_batch_id=f'APPLY_ACCRUED_INTEREST_{hook_execution_id}_{denomination}'
         )
 
 
@@ -179,3 +295,7 @@ def _yearly_to_daily_rate(yearly_rate):
 
 def _precision_accrual(amount):
     return amount.copy_abs().quantize(Decimal('.0001'), rounding=ROUND_HALF_UP)
+
+
+def _precision_fulfillment(amount):
+    return amount.copy_abs().quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
