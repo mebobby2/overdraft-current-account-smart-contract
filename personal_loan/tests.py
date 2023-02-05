@@ -216,6 +216,9 @@ class TutorialTest(unittest.TestCase):
                 })
             ],
         )
+
+        # print(json.dumps(res[-1]["result"]["balances"], indent=2))
+
         final_account_balances = res[-1]["result"]["balances"]["main_account"]["balances"]
         accrual_balances = next(
             balance

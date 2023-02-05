@@ -41,7 +41,6 @@ For ThoughtMachines Vault tutorial: https://docs.thoughtmachine.net/vault-core/4
   * run all tests: python3 -m unittest tests.py
 
 ## Upto
-https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#advanced-contract-principal_payment
+https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#advanced-contract-repayment_logic
 
-
-This tutorial shows the implementation of charging an account
+In this part of the tutorial, we are going to add the repayment logic to the loan contract.
