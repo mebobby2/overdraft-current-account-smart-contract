@@ -1,5 +1,5 @@
 # Understand the cashflows (Postings and Balances)
-![Alt Cashflows](personal_loan/cashflows.png "Cashflows")
+![Alt Cashflows](cashflows.png "Cashflows")
 
 
 ## On account creation
