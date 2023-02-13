@@ -41,6 +41,6 @@ For ThoughtMachines Vault tutorial: https://docs.thoughtmachine.net/vault-core/4
   * run all tests: python3 -m unittest tests.py
 
 ## Upto
-https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#advanced-contract-repayment_logic
+https://docs.thoughtmachine.net/vault-core/4-5/EN/tutorials/smart-contracts/#advanced-contract-missed_repayment_logic
 
-In this part of the tutorial, we are going to add the repayment logic to the loan contract.
+In this part of the tutorial, we are going to add the logic of missed repayments to the loan contract.

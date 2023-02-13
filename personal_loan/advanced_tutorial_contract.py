@@ -131,7 +131,7 @@ def pre_posting_code(postings, effective_date):
     denomination = vault.get_parameter_timeseries(name='denomination').latest()
     payment_day_param = vault.get_parameter_timeseries(
         name='payment_day').latest()
-    payment_day, _ = _get_payment_day(payment_day_param, effective_date)
+    payment_day, _ = _get_payment_day(vault, payment_day_param, effective_date)
     next_payment_date = _calculate_next_payment_date(
         payment_day, effective_date)
 
@@ -381,10 +381,11 @@ def _calculate_monthly_payment(effective_date, end_date, loan_term, loan_amount,
     natural_end_date = creation_date + timedelta(years=loan_term)
     if end_date.is_set() or natural_end_date < effective_date + timedelta(days=28):
         return sum(
-            balance.net for ((address, asset, denomination, phase), balances) in balances.items()
+            balance.net for ((address, asset, denomination, phase), balance) in balances.items()
         )
     no_of_periods = 12 * loan_term
-    interest_rate = _calculate_tier_values(loan_amount, interest_rate_tiers, tier_ranges)
+    interest_rate = _calculate_tier_values(
+        loan_amount, interest_rate_tiers, tier_ranges)
     if interest_rate == 0:
         return _precision_fulfillment(loan_amount / no_of_periods)
     monthly_rate = interest_rate / 12
@@ -510,6 +511,13 @@ def _calculate_tier_values(loan_amount, interest_rate_tiers, tier_ranges):
         )
     interest_rate = Decimal(interest_rate_tiers[tier])
     return interest_rate
+
+
+def _calculate_next_payment_date(payment_day, effective_date):
+    next_payment_date = effective_date.replace(day=payment_day)
+    if next_payment_date < effective_date + timedelta(months=28):
+        next_payment_date = next_payment_date + timedelta(months=1)
+    return next_payment_date
 
 
 def _yearly_to_daily_rate(yearly_rate):
