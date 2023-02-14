@@ -573,6 +573,7 @@ class TutorialTest(unittest.TestCase):
         self.assertEqual(final_balances["ACCRUED_INTEREST"], "0.7393")
         self.assertEqual(final_balances["DEFAULT"], "9178.4")
         self.assertEqual(final_balances["DUE"], "849.99")
+        self.assertEqual(final_balances["FEES"], "25")
 
     def test_full_ideal_loan(self):
         start = datetime(year=2019, month=1, day=4, tzinfo=timezone.utc)
@@ -686,3 +687,106 @@ class TutorialTest(unittest.TestCase):
         )
         self.assertEqual(final_balances["DUE"], "0.005")
         self.assertEqual(final_balances["DEFAULT"], "0.005")
+
+    def test_able_to_pay_overdue_balance(self):
+        start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
+        instruction1 = datetime(year=2019, month=3, day=5, hour=9, tzinfo=timezone.utc)
+        end = datetime(year=2019, month=3, day=5, hour=10, tzinfo=timezone.utc)
+        template_params = {
+            "denomination": "GBP",
+            "gross_interest_rate_tiers": '{"tier1": 0}',
+            "internal_account": "1",
+            "late_payment_fee": "25",
+            "tier_ranges": '{"tier1": {"min": 1000, "max": 20000}}',
+        }
+        instance_params = {
+            "loan_term": "1",
+            "loan_amount": "6500",
+            "payment_day": "5",
+            "deposit_account": "12345",
+        }
+        deposit_instruction = products_test_utils.create_deposit_instruction(
+            amount="1083.34", timestamp=instruction1.isoformat()
+        )
+        instructions = [vault_caller.SimulationInstruction(instruction1, deposit_instruction)]
+        res = self.make_simulate_contracts_call(
+            start,
+            end,
+            template_params,
+            instance_params,
+            instructions,
+        )
+
+        final_balances = products_test_utils.get_final_balances(
+            res[-1]["result"]["balances"]["main_account"]["balances"]
+        )
+        self.assertEqual(final_balances["DEFAULT"], "5416.66")
+        self.assertEqual(final_balances["DUE"], "0")
+
+    def test_late_payment_fee(self):
+        start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
+        end = datetime(year=2019, month=2, day=6, tzinfo=timezone.utc)
+        template_params = {
+            "denomination": "GBP",
+            "gross_interest_rate_tiers": '{"tier1": "0"}',
+            "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
+            "late_payment_fee": "25",
+            "internal_account": "1",
+        }
+        instance_params = {
+            "loan_term": "1",
+            "loan_amount": "10000",
+            "payment_day": "5",
+            "deposit_account": "12345",
+        }
+
+        res = self.make_simulate_contracts_call(
+            start,
+            end,
+            template_params,
+            instance_params,
+        )
+
+        # We get the second to last instruction because an ACCRUE_INTEREST instruction is processed at
+        # midnight.
+        final_balances = products_test_utils.get_final_balances(
+            res[-2]["result"]["balances"]["main_account"]["balances"]
+        )
+        self.assertEqual(final_balances["FEES"], "25")
+
+    def test_repayment_order(self):
+        start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
+        instruction1 = datetime(year=2019, month=3, day=5, hour=9, tzinfo=timezone.utc)
+        end = datetime(year=2019, month=3, day=5, hour=23, tzinfo=timezone.utc)
+        template_params = {
+            "denomination": "GBP",
+            "gross_interest_rate_tiers": '{"tier1": "0"}',
+            "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
+            "late_payment_fee": "25",
+            "internal_account": "1",
+        }
+        instance_params = {
+            "loan_term": "1",
+            "loan_amount": "6500",
+            "payment_day": "5",
+            "deposit_account": "12345",
+        }
+
+        deposit_instruction = products_test_utils.create_deposit_instruction(
+            amount="641.67", timestamp=instruction1.isoformat()
+        )
+        instructions = [vault_caller.SimulationInstruction(instruction1, deposit_instruction)]
+        res = self.make_simulate_contracts_call(
+            start,
+            end,
+            template_params,
+            instance_params,
+            instructions,
+        )
+
+        final_balances = products_test_utils.get_final_balances(
+            res[-1]["result"]["balances"]["main_account"]["balances"]
+        )
+        self.assertEqual(final_balances["DUE"], "441.67")
+        self.assertEqual(final_balances["FEES"], "25")
+        self.assertEqual(final_balances["DEFAULT"], "5416.66")
