@@ -2,13 +2,13 @@ import sys
 sys.path.append("..")
 
 
-import json  # this needs to be added
-import vault_caller
-from datetime import datetime, timezone
-from decimal import Decimal
-import os
-import unittest
 import products_test_utils
+import unittest
+import os
+from decimal import Decimal
+from datetime import datetime, timezone
+import vault_caller
+import json  # this needs to be added
 
 
 core_api_url = "https://core-api.public-sandbox.partner.tmachine.io"
@@ -37,6 +37,7 @@ default_template_params = {
         }
     ),
     'internal_account': '1',
+    'late_payment_fee': '25',
 }
 
 default_instance_params = {
@@ -180,6 +181,7 @@ class TutorialTest(unittest.TestCase):
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -220,6 +222,7 @@ class TutorialTest(unittest.TestCase):
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -255,13 +258,15 @@ class TutorialTest(unittest.TestCase):
 
     def test_partial_payment(self):
         start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
-        instruction1 = datetime(year=2019, month=2, day=5, hour=9, tzinfo=timezone.utc)
+        instruction1 = datetime(year=2019, month=2, day=5,
+                                hour=9, tzinfo=timezone.utc)
         end = datetime(year=2019, month=2, day=5, hour=23, tzinfo=timezone.utc)
         template_params = {
             "denomination": "GBP",
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -273,7 +278,8 @@ class TutorialTest(unittest.TestCase):
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="100", timestamp=instruction1.isoformat()
         )
-        instructions = [vault_caller.SimulationInstruction(instruction1, deposit_instruction)]
+        instructions = [vault_caller.SimulationInstruction(
+            instruction1, deposit_instruction)]
         res = self.make_simulate_contracts_call(
             start,
             end,
@@ -290,14 +296,17 @@ class TutorialTest(unittest.TestCase):
 
     def test_multiple_partial_payments(self):
         start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
-        instruction1 = datetime(year=2019, month=2, day=5, hour=5, tzinfo=timezone.utc)
-        instruction2 = datetime(year=2019, month=2, day=5, hour=7, tzinfo=timezone.utc)
+        instruction1 = datetime(year=2019, month=2, day=5,
+                                hour=5, tzinfo=timezone.utc)
+        instruction2 = datetime(year=2019, month=2, day=5,
+                                hour=7, tzinfo=timezone.utc)
         end = datetime(year=2019, month=2, day=5, hour=23, tzinfo=timezone.utc)
         template_params = {
             "denomination": "GBP",
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -313,8 +322,10 @@ class TutorialTest(unittest.TestCase):
             amount="100", timestamp=instruction2.isoformat(), client_transaction_id="128435984378"
         )
         instructions = [
-            vault_caller.SimulationInstruction(instruction1, deposit_instruction),
-            vault_caller.SimulationInstruction(instruction2, deposit_instruction2),
+            vault_caller.SimulationInstruction(
+                instruction1, deposit_instruction),
+            vault_caller.SimulationInstruction(
+                instruction2, deposit_instruction2),
         ]
         res = self.make_simulate_contracts_call(
             start,
@@ -339,14 +350,17 @@ class TutorialTest(unittest.TestCase):
 
     def test_multiple_partial_payments_too_much(self):
         start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
-        instruction1 = datetime(year=2019, month=2, day=5, hour=5, tzinfo=timezone.utc)
-        instruction2 = datetime(year=2019, month=2, day=5, hour=7, tzinfo=timezone.utc)
+        instruction1 = datetime(year=2019, month=2, day=5,
+                                hour=5, tzinfo=timezone.utc)
+        instruction2 = datetime(year=2019, month=2, day=5,
+                                hour=7, tzinfo=timezone.utc)
         end = datetime(year=2019, month=2, day=5, hour=23, tzinfo=timezone.utc)
         template_params = {
             "denomination": "GBP",
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -362,8 +376,10 @@ class TutorialTest(unittest.TestCase):
             amount="500", timestamp=instruction2.isoformat(), client_transaction_id="24367567843"
         )
         instructions = [
-            vault_caller.SimulationInstruction(instruction1, deposit_instruction),
-            vault_caller.SimulationInstruction(instruction2, deposit_instruction2),
+            vault_caller.SimulationInstruction(
+                instruction1, deposit_instruction),
+            vault_caller.SimulationInstruction(
+                instruction2, deposit_instruction2),
         ]
         res = self.make_simulate_contracts_call(
             start,
@@ -394,13 +410,15 @@ class TutorialTest(unittest.TestCase):
 
     def test_attempted_overpayment(self):
         start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
-        instruction1 = datetime(year=2019, month=2, day=5, hour=9, tzinfo=timezone.utc)
+        instruction1 = datetime(year=2019, month=2, day=5,
+                                hour=9, tzinfo=timezone.utc)
         end = datetime(year=2019, month=2, day=5, hour=12, tzinfo=timezone.utc)
         template_params = {
             "denomination": "GBP",
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -412,7 +430,8 @@ class TutorialTest(unittest.TestCase):
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="1000", timestamp=instruction1.isoformat()
         )
-        instructions = [vault_caller.SimulationInstruction(instruction1, deposit_instruction)]
+        instructions = [vault_caller.SimulationInstruction(
+            instruction1, deposit_instruction)]
         res = self.make_simulate_contracts_call(
             start,
             end,
@@ -435,6 +454,7 @@ class TutorialTest(unittest.TestCase):
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -446,7 +466,8 @@ class TutorialTest(unittest.TestCase):
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="1000", timestamp=instruction1.isoformat()
         )
-        instructions = [vault_caller.SimulationInstruction(instruction1, deposit_instruction)]
+        instructions = [vault_caller.SimulationInstruction(
+            instruction1, deposit_instruction)]
 
         with self.assertRaises(ValueError):
             self.make_simulate_contracts_call(
@@ -466,6 +487,7 @@ class TutorialTest(unittest.TestCase):
             "gross_interest_rate_tiers": '{"tier1": "0"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -477,7 +499,8 @@ class TutorialTest(unittest.TestCase):
         withdrawal_instruction = products_test_utils.create_withdrawal_instruction(
             amount="283.45", timestamp=instruction1.isoformat()
         )
-        instructions = [vault_caller.SimulationInstruction(instruction1, withdrawal_instruction)]
+        instructions = [vault_caller.SimulationInstruction(
+            instruction1, withdrawal_instruction)]
         res = self.make_simulate_contracts_call(
             start,
             end,
@@ -499,6 +522,7 @@ class TutorialTest(unittest.TestCase):
             "gross_interest_rate_tiers": '{"tier1": "0.0296"}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 25000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -527,6 +551,7 @@ class TutorialTest(unittest.TestCase):
             "gross_interest_rate_tiers": '{"tier1": 0.0296}',
             "tier_ranges": '{"tier1": {"min": 1000, "max": 20000}}',
             "internal_account": "1",
+            'late_payment_fee': '25',
         }
         instance_params = {
             "loan_term": "1",
@@ -551,18 +576,30 @@ class TutorialTest(unittest.TestCase):
 
     def test_full_ideal_loan(self):
         start = datetime(year=2019, month=1, day=4, tzinfo=timezone.utc)
-        instruction1 = datetime(year=2019, month=2, day=5, hour=9, tzinfo=timezone.utc)
-        instruction2 = datetime(year=2019, month=3, day=5, hour=9, tzinfo=timezone.utc)
-        instruction3 = datetime(year=2019, month=4, day=5, hour=9, tzinfo=timezone.utc)
-        instruction4 = datetime(year=2019, month=5, day=5, hour=9, tzinfo=timezone.utc)
-        instruction5 = datetime(year=2019, month=6, day=5, hour=9, tzinfo=timezone.utc)
-        instruction6 = datetime(year=2019, month=7, day=5, hour=9, tzinfo=timezone.utc)
-        instruction7 = datetime(year=2019, month=8, day=5, hour=9, tzinfo=timezone.utc)
-        instruction8 = datetime(year=2019, month=9, day=5, hour=9, tzinfo=timezone.utc)
-        instruction9 = datetime(year=2019, month=10, day=5, hour=9, tzinfo=timezone.utc)
-        instruction10 = datetime(year=2019, month=11, day=5, hour=9, tzinfo=timezone.utc)
-        instruction11 = datetime(year=2019, month=12, day=5, hour=9, tzinfo=timezone.utc)
-        instruction12 = datetime(year=2020, month=1, day=5, hour=9, tzinfo=timezone.utc)
+        instruction1 = datetime(year=2019, month=2, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction2 = datetime(year=2019, month=3, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction3 = datetime(year=2019, month=4, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction4 = datetime(year=2019, month=5, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction5 = datetime(year=2019, month=6, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction6 = datetime(year=2019, month=7, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction7 = datetime(year=2019, month=8, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction8 = datetime(year=2019, month=9, day=5,
+                                hour=9, tzinfo=timezone.utc)
+        instruction9 = datetime(year=2019, month=10,
+                                day=5, hour=9, tzinfo=timezone.utc)
+        instruction10 = datetime(
+            year=2019, month=11, day=5, hour=9, tzinfo=timezone.utc)
+        instruction11 = datetime(
+            year=2019, month=12, day=5, hour=9, tzinfo=timezone.utc)
+        instruction12 = datetime(
+            year=2020, month=1, day=5, hour=9, tzinfo=timezone.utc)
         end = datetime(year=2020, month=1, day=5, hour=23, tzinfo=timezone.utc)
         template_params = default_template_params
         instance_params = {
@@ -577,52 +614,64 @@ class TutorialTest(unittest.TestCase):
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="555.76", timestamp=instruction1.isoformat(), client_transaction_id="1"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction1, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction1, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction2.isoformat(), client_transaction_id="2"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction2, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction2, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction3.isoformat(), client_transaction_id="3"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction3, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction3, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction4.isoformat(), client_transaction_id="4"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction4, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction4, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction5.isoformat(), client_transaction_id="5"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction5, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction5, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction6.isoformat(), client_transaction_id="6"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction6, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction6, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction7.isoformat(), client_transaction_id="7"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction7, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction7, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction8.isoformat(), client_transaction_id="8"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction8, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction8, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction9.isoformat(), client_transaction_id="9"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction9, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction9, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction10.isoformat(), client_transaction_id="10"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction10, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction10, deposit_instruction))
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.96", timestamp=instruction11.isoformat(), client_transaction_id="11"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction11, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction11, deposit_instruction))
         # Final payment just covers the leftover balance
         deposit_instruction = products_test_utils.create_deposit_instruction(
             amount="554.30", timestamp=instruction12.isoformat(), client_transaction_id="12"
         )
-        instructions.append(vault_caller.SimulationInstruction(instruction12, deposit_instruction))
+        instructions.append(vault_caller.SimulationInstruction(
+            instruction12, deposit_instruction))
 
         res = self.make_simulate_contracts_call(
             start,

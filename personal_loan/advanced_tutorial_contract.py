@@ -10,6 +10,8 @@ tside = Tside.ASSET
 # specifying custom balance address for accruals
 ACCRUED_INTEREST = 'ACCRUED_INTEREST'
 DUE = 'DUE'
+FEES = 'FEES'
+DUE_ACCRUED = 'DUE_ACCRUED'
 
 parameters = [
     Parameter(
@@ -98,6 +100,15 @@ parameters = [
         description='The date by which the loan must be fully paid off',
         display_name='The date by which the loan must be fully paid off',
     ),
+    Parameter(
+        name='late_payment_fee',
+        shape=NumberShape(
+            kind=NumberKind.MONEY
+        ),
+        level=Level.TEMPLATE,
+        description='The fee for an overdue payment',
+        display_name='Overdue payment fee',
+    ),
 ]
 
 
@@ -153,7 +164,7 @@ def pre_posting_code(postings, effective_date):
 
     total_due = sum(
         balance.net for ((address, asset, denomination, phase), balance) in balances.items() if
-        address in [DUE]
+        address in [DUE, FEES, DUE_ACCRUED]
     )
 
     amount_paid_off_this_month = sum(
@@ -193,33 +204,40 @@ def post_posting_code(postings, effective_date):
 
 
 def _process_payment(vault, effective_date, posting, client_transaction_id, denomination, balances):
-    repayment_instructions = []
-    current_address_balance = balances[
-        (DUE, DEFAULT_ASSET, denomination, Phase.COMMITTED)
-    ].net
-    posting_amount = abs(
+    repayment_amount_remaining = abs(
         posting.balances()[(DEFAULT_ADDRESS, DEFAULT_ASSET,
                             denomination, Phase.COMMITTED)].net
     )
-    if posting_amount == Decimal('0'):
+    if repayment_amount_remaining == Decimal('0'):
         return
-    if current_address_balance and posting_amount > 0:
-        repayment_instructions.extend(
-            vault.make_internal_transfer_instructions(
-                amount=posting.amount,
-                denomination=denomination,
-                client_transaction_id=f'REPAY_{DUE}_{client_transaction_id}',
-                from_account_id=vault.account_id,
-                from_account_address=DEFAULT_ADDRESS,
-                to_account_id=vault.account_id,
-                to_account_address=DUE,
-                instruction_details={
-                    'description': f'Paying off {posting_amount} from {DUE}, '
-                                   f'which was at {current_address_balance} - {effective_date}'
-                },
-                asset=DEFAULT_ASSET
+    repayment_order = [DUE, FEES]
+
+    repayment_instructions = []
+    for debt_address in repayment_order:
+        current_address_balance = balances[
+            (debt_address, DEFAULT_ASSET, denomination, Phase.COMMITTED)
+        ].net
+        if current_address_balance and repayment_amount_remaining > 0:
+            posting_amount = min(repayment_amount_remaining,
+                                 current_address_balance)
+            repayment_instructions.extend(
+                vault.make_internal_transfer_instructions(
+                    amount=posting_amount,
+                    denomination=denomination,
+                    client_transaction_id=f'REPAY_{debt_address}_{client_transaction_id}',
+                    from_account_id=vault.account_id,
+                    from_account_address=DEFAULT_ADDRESS,
+                    to_account_id=vault.account_id,
+                    to_account_address=debt_address,
+                    instruction_details={
+                        'description': f'Paying off {posting_amount} from {debt_address}, '
+                        f'which was at {current_address_balance} - {effective_date}'
+                    },
+                    asset=DEFAULT_ASSET
+                )
             )
-        )
+            repayment_amount_remaining -= posting_amount
+
     if repayment_instructions:
         vault.instruct_posting_batch(
             posting_instructions=repayment_instructions,
@@ -271,6 +289,15 @@ def execution_schedules():
                 'start_date': str(first_payment_date.date())
             }
         ),
+        (
+            'CHECK_FOR_PAYMENT',
+            {
+                'day': str(payment_day),
+                'hour': '23',
+                'minute': '59',
+                'start_date': str(first_payment_date.date())
+            }
+        ),
     ]
 
 
@@ -302,6 +329,7 @@ def _calculate_first_payment_day(payment_day, roll_over_to_next_month, creation_
 @requires(event_type='ACCRUED_INTEREST', parameters=True, balances='1 day')
 @requires(event_type='APPLY_INTEREST', parameters=True, balances='1 day', last_execution_time=['APPLY_INTEREST'])
 @requires(event_type='TRANSFER_DUE_AMOUNT', parameters=True, balances='1 day', last_execution_time=['TRANSFER_DUE_AMOUNT'])
+@requires(event_type='CHECK_FOR_PAYMENT', parameters=True, balances='1 month', postings='1 month', last_execution_time=['CHECK_FOR_PAYMENT'])
 def scheduled_code(event_type, effective_date):
     internal_account = vault.get_parameter_timeseries(
         name='internal_account').latest()
@@ -309,6 +337,8 @@ def scheduled_code(event_type, effective_date):
     end_date = vault.get_parameter_timeseries(name='loan_end_date').latest()
     loan_amount = vault.get_parameter_timeseries(name='loan_amount').latest()
     loan_term = vault.get_parameter_timeseries(name='loan_term').latest()
+    late_payment_fee = vault.get_parameter_timeseries(
+        name='late_payment_fee').latest()
 
     tier_ranges = json_loads(
         vault.get_parameter_timeseries(name='tier_ranges').latest())
@@ -342,6 +372,53 @@ def scheduled_code(event_type, effective_date):
             vault, effective_date, previous_payment_checked, denomination, end_date, loan_term,
             loan_amount, interest_rate_tiers, tier_ranges, payment_day, roll_over_to_next_month,
             creation_date, balances
+        )
+    elif event_type == 'CHECK_FOR_PAYMENT':
+        recent_postings = vault.get_postings()
+        balances = vault.get_balance_timeseries().latest()
+        _check_monthly_payment(
+            vault, effective_date, internal_account, denomination, late_payment_fee, balances, recent_postings, payment_day
+        )
+
+
+def _check_monthly_payment(vault, effective_date, internal_account, denomination, late_payment_fee, balances, recent_postings, payment_day):
+    monthly_repayment = balances[(
+        DUE, DEFAULT_ASSET, denomination, Phase.COMMITTED)].net
+    next_payment_date = _calculate_next_payment_date(
+        payment_day, effective_date)
+
+    amount_paid_off_this_month = sum(
+        abs(posting.balances()[
+            (DEFAULT_ADDRESS, DEFAULT_ASSET, denomination, Phase.COMMITTED)].net)
+        for posting in recent_postings
+        if posting.credit and posting.type != PostingInstructionType.CUSTOM_INSTRUCTION
+        and posting.value_timestamp > next_payment_date - timedelta(months=1)
+    )
+    unpaid_amount = monthly_repayment - amount_paid_off_this_month
+
+    if unpaid_amount > 0:
+        posting_ins = vault.make_internal_transfer_instructions(
+            amount=late_payment_fee,
+            denomination=denomination,
+            client_transaction_id=vault.get_hook_execution_id() + "_LATE_PAYMENT_FEE",
+            from_account_id=vault.account_id,
+            from_account_address=FEES,
+            to_account_id=internal_account,
+            to_account_address='ACCRUED_INCOMING',
+            instruction_details={
+                'description': f'Late payment fee added to overdue fee balance: {late_payment_fee}'
+            },
+            asset=DEFAULT_ASSET
+        )
+        vault.instruct_posting_batch(
+            posting_instructions=posting_ins, effective_date=effective_date
+        )
+        vault.add_account_note(
+            body=f'A fee of {late_payment_fee} has been applied for the overdue amount '
+                 f'{unpaid_amount}',
+            note_type=NoteType.RAW_TEXT,
+            is_visible_to_customer=True,
+            date=effective_date
         )
 
 
@@ -416,11 +493,12 @@ def _calculate_additional_interest(previous_payment_checked, loan_amount, intere
 
 
 def _apply_accrued_interest(vault, end_of_day_datetime, internal_account, denomination, balances):
+    hook_execution_id = vault.get_hook_execution_id()
+
     outgoing_accrued = balances[
         (ACCRUED_INTEREST, DEFAULT_ASSET, denomination, Phase.COMMITTED)
     ].net
     amount_to_be_paid = _precision_fulfillment(outgoing_accrued)
-    hook_execution_id = vault.get_hook_execution_id()
 
     if amount_to_be_paid > 0:
         posting_ins = vault.make_internal_transfer_instructions(
@@ -461,17 +539,65 @@ def _apply_accrued_interest(vault, end_of_day_datetime, internal_account, denomi
             client_batch_id=f'APPLY_ACCRUED_INTEREST_{hook_execution_id}_{denomination}'
         )
 
+    overdue_outgoing_accrued = balances[
+        (DUE_ACCRUED, DEFAULT_ASSET, denomination, Phase.COMMITTED)
+    ].net
+    overdue_amount_to_be_paid = _precision_fulfillment(
+        overdue_outgoing_accrued)
+
+    if overdue_amount_to_be_paid > 0:
+        posting_ins = vault.make_internal_transfer_instructions(
+            amount=overdue_amount_to_be_paid,
+            denomination=denomination,
+            from_account_id=vault.account_id,
+            from_account_address=DUE,
+            to_account_id=vault.account_id,
+            to_account_address=DUE_ACCRUED,
+            asset=DEFAULT_ASSET,
+            client_transaction_id=f'APPLY_ACCRUED_INTEREST_OVERDUE_{hook_execution_id}_'
+                                  f'{denomination}_CUSTOMER',
+            instruction_details={
+                'description': 'Interest Applied',
+                'event': 'APPLY_ACCRUED_INTEREST_OVERDUE'
+            }
+        )
+        posting_ins.extend(
+            vault.make_internal_transfer_instructions(
+                amount=overdue_amount_to_be_paid,
+                denomination=denomination,
+                from_account_id=internal_account,
+                from_account_address='ACCRUED_INCOMING',
+                to_account_id=internal_account,
+                to_account_address=DEFAULT_ADDRESS,
+                asset=DEFAULT_ASSET,
+                client_transaction_id=f'APPLY_ACCRUED_INTEREST_OVERDUE_'
+                                      f'{hook_execution_id}_{denomination}_INTERNAL',
+                instruction_details={
+                    'description': 'Interest Applied',
+                    'event': 'APPLY_ACCRUED_INTEREST_OVERDUE'
+                }
+            )
+        )
+        vault.instruct_posting_batch(
+            posting_instructions=posting_ins,
+            effective_date=end_of_day_datetime,
+            client_batch_id=f'APPLY_ACCRUED_INTEREST_OVERDUE_{hook_execution_id}_'
+                            f'{denomination}'
+        )
+
 
 def _accure_interest(vault, denomination, internal_account, effective_date, loan_amount,
                      interest_rate_tiers, tier_ranges, balances):
-    effective_balance = balances[
-        (DEFAULT_ADDRESS, DEFAULT_ASSET, denomination, Phase.COMMITTED)
-    ].net
     hook_execution_id = vault.get_hook_execution_id()
     daily_rate = _calculate_daily_interest_rates(
         loan_amount, interest_rate_tiers, tier_ranges)
+
+    effective_balance = balances[
+        (DEFAULT_ADDRESS, DEFAULT_ASSET, denomination, Phase.COMMITTED)
+    ].net
     interest = effective_balance * daily_rate
     amount_to_accrue = _precision_accrual(interest)
+
     if amount_to_accrue > 0:
         posting_ins = vault.make_internal_transfer_instructions(
             amount=amount_to_accrue,
@@ -484,6 +610,31 @@ def _accure_interest(vault, denomination, internal_account, effective_date, loan
             instruction_details={
                 'description': f'Daily interest accrued at {daily_rate} on balance '
                                f'of {effective_balance}'
+            },
+            asset=DEFAULT_ASSET
+        )
+        vault.instruct_posting_batch(
+            posting_instructions=posting_ins, effective_date=effective_date
+        )
+
+    due_balance = balances[
+        (DUE, DEFAULT_ASSET, denomination, Phase.COMMITTED)
+    ].net
+    overdue_interest = due_balance * daily_rate
+    overdue_amount_to_accrue = _precision_accrual(overdue_interest)
+
+    if (overdue_amount_to_accrue > 0):
+        posting_ins = vault.make_internal_transfer_instructions(
+            amount=overdue_amount_to_accrue,
+            denomination=denomination,
+            client_transaction_id=hook_execution_id + '_OVERDUE',
+            from_account_id=vault.account_id,
+            from_account_address=DUE_ACCRUED,
+            to_account_id=internal_account,
+            to_account_address='ACCRUED_INCOMING',
+            instruction_details={
+                'description': f'Daily interest accrued at {daily_rate} on '
+                               f'OVERDUE balance of {due_balance}'
             },
             asset=DEFAULT_ASSET
         )
