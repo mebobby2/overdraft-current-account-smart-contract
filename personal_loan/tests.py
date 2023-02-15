@@ -156,7 +156,7 @@ class TutorialTest(unittest.TestCase):
         # We want to test that at 12:00:01 AM interest is charged
         start = datetime(year=2019, month=1, day=1,
                          hour=9, tzinfo=timezone.utc)
-        end = datetime(year=2019, month=2, day=1, hour=9, tzinfo=timezone.utc)
+        end = datetime(year=2019, month=3, day=1, hour=9, tzinfo=timezone.utc)
         res = self.make_simulate_contracts_call(
             start, end, default_template_params, default_instance_params)
 
@@ -168,9 +168,9 @@ class TutorialTest(unittest.TestCase):
             for balance in final_account_balances
             if "DEFAULT" in balance["account_address"]
         )
-        self.assertEqual(float(accrual_balances.get('amount')), 3000.0)
+        self.assertEqual(float(accrual_balances.get('amount')), 2886.81)
         self.assertEqual(accrual_balances.get(
-            'value_time'), '2019-01-01T09:00:00Z')
+            'value_time'), '2019-02-06T00:00:01Z')
 
     def test_payment_too_soon(self):
         start = datetime(year=2019, month=1, day=1, tzinfo=timezone.utc)
