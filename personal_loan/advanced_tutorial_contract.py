@@ -533,6 +533,7 @@ def _apply_accrued_interest(vault, end_of_day_datetime, internal_account, denomi
                 }
             )
         )
+        # A posting instruction is a batch of postings that must be completed or failed together i.e. they are transactions
         vault.instruct_posting_batch(
             posting_instructions=posting_ins,
             effective_date=end_of_day_datetime,
